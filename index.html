@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Visualizer</title>
+    <link rel="stylesheet" href="./styles.css">
+</head>
+
+<body>
+    <div class="container">
+        <div class="bg-image"></div>
+        <div class="overlay"></div>
+        <div class="visualizer-container">
+            <canvas id="visualizer" width="800" height="800"></canvas>
+        </div>
+        <div class="logo">AJ</div>
+
+        <div class="audio-info hidden">
+            <p id="songTitle">No song playing</p>
+            <div id="audioProgress"></div>
+        </div>
+
+        <div class="controls">
+            <label for="upload" class="file-label">Choose Audio</label>
+            <input type="file" id="upload" accept="audio/*">
+            <button id="toggleOptions">Options</button>
+        </div>
+
+        <div class="options-panel hidden" id="optionsPanel">
+            <button class="collapse-btn" id="collapseOptions">x</button>
+
+            <div class="option-group">
+                <h3>Visualization Type</h3>
+                <div class="option-content">
+                    <select id="visType">
+                        <option value="circle">Circle Ring</option>
+                        <option value="bars">Circular Bars</option>
+                        <option value="wave">Wave Form</option>
+                        <option value="particles">Particles</option>
+                        <option value="spectrum">Spectrum Analyzer</option>
+                        <option value="imageCircle">Image Circle</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="option-group">
+                <h3>Color Options</h3>
+                <div class="option-content">
+                    <div class="option-row">
+                        <label>Primary Color:</label>
+                        <input type="color" id="primaryColor" value="#ff9600">
+                    </div>
+                    <div class="option-row">
+                        <label>Secondary Color:</label>
+                        <input type="color" id="secondaryColor" value="#ff0080">
+                    </div>
+                    <div class="option-row">
+                        <label>Use Gradient:</label>
+                        <input type="checkbox" id="useGradient" checked>
+                    </div>
+                </div>
+            </div>
+
+            <div class="option-group">
+                <h3>Sensitivity</h3>
+                <div class="option-content">
+                    <div class="option-row">
+                        <label>Bass:</label>
+                        <input type="range" id="bassSensitivity" min="0" max="2" step="0.1" value="1">
+                    </div>
+                    <div class="option-row">
+                        <label>Mid:</label>
+                        <input type="range" id="midSensitivity" min="0" max="2" step="0.1" value="1">
+                    </div>
+                    <div class="option-row">
+                        <label>Treble:</label>
+                        <input type="range" id="trebleSensitivity" min="0" max="2" step="0.1" value="1">
+                    </div>
+                </div>
+            </div>
+
+            <div class="option-group">
+                <h3>Display</h3>
+                <div class="option-content">
+                    <div class="option-row">
+                        <label>Size:</label>
+                        <input type="range" id="visSize" min="0.5" max="1.5" step="0.1" value="1">
+                    </div>
+                    <div class="option-row">
+                        <label>Line Width:</label>
+                        <input type="range" id="lineWidth" min="1" max="20" step="1" value="5">
+                    </div>
+                    <div class="option-row">
+                        <label>Glow Intensity:</label>
+                        <input type="range" id="glowIntensity" min="0" max="2" step="0.1" value="1">
+                    </div>
+                    <div class="option-row">
+                        <label>Background Dim:</label>
+                        <input type="range" id="bgDim" min="0" max="1" step="0.1" value="0.3">
+                    </div>
+                </div>
+            </div>
+
+            <div class="option-group">
+                <h3>Image Options</h3>
+                <div class="option-content">
+                    <div class="option-row">
+                        <label for="circleImage">Circle Image:</label>
+                        <input type="file" id="circleImage" accept="image/*">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const canvas = document.getElementById('visualizer');
+        const ctx = canvas.getContext('2d');
+        const audioUpload = document.getElementById('upload');
+        const toggleOptionsBtn = document.getElementById('toggleOptions');
+        const optionsPanel = document.getElementById('optionsPanel');
+        const collapseOptionsBtn = document.getElementById('collapseOptions');
+        const visTypeSelect = document.getElementById('visType');
+        const audioInfo = document.querySelector('.audio-info');
+        const songTitle = document.getElementById('songTitle');
+        const audioProgress = document.getElementById('audioProgress');
+        const bgImage = document.querySelector('.bg-image');
+        const circleImageInput = document.getElementById('circleImage');
+        let circleImage = null;
+
+        // Add event listener in setupEventListeners function
+        circleImageInput.addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (file) {
+                const img = new Image();
+                img.onload = function () {
+                    circleImage = img;
+                };
+                img.src = URL.createObjectURL(file);
+            }
+        });
+
+        // Settings and UI controls
+        const primaryColorInput = document.getElementById('primaryColor');
+        const secondaryColorInput = document.getElementById('secondaryColor');
+        const useGradientInput = document.getElementById('useGradient');
+        const bassSensitivityInput = document.getElementById('bassSensitivity');
+        const midSensitivityInput = document.getElementById('midSensitivity');
+        const trebleSensitivityInput = document.getElementById('trebleSensitivity');
+        const visSizeInput = document.getElementById('visSize');
+        const lineWidthInput = document.getElementById('lineWidth');
+        const glowIntensityInput = document.getElementById('glowIntensity');
+        const bgDimInput = document.getElementById('bgDim');
+
+        // Audio Variables
+        let audioContext;
+        let analyser;
+        let source;
+        let audioPlaying = false;
+        let animationId;
+        let audio = new Audio();
+        let dataArray;
+        let bufferLength;
+
+        // Settings object
+        const settings = {
+            visType: 'circle',
+            primaryColor: '#ff9600',
+            secondaryColor: '#ff0080',
+            useGradient: true,
+            bassSensitivity: 1,
+            midSensitivity: 1,
+            trebleSensitivity: 1,
+            visSize: 1,
+            lineWidth: 5,
+            glowIntensity: 1,
+            bgDim: 0.3
+        };
+
+        // Initialize audio context
+        function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 2048;
+                analyser.smoothingTimeConstant = 0.85;
+                bufferLength = analyser.frequencyBinCount;
+                dataArray = new Uint8Array(bufferLength);
+            }
+        }
+
+        // Handle file upload
+        audioUpload.addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (file) {
+                stopAudio();
+                const fileURL = URL.createObjectURL(file);
+                setupAudio(fileURL, file.name);
+            }
+        });
+
+        // Toggle options panel
+        toggleOptionsBtn.addEventListener('click', function () {
+            optionsPanel.classList.toggle('hidden');
+        });
+
+        // Collapse options panel
+        collapseOptionsBtn.addEventListener('click', function () {
+            optionsPanel.classList.add('hidden');
+        });
+
+        // Update settings when controls change
+        function setupEventListeners() {
+            visTypeSelect.addEventListener('change', function () {
+                settings.visType = this.value;
+            });
+
+            primaryColorInput.addEventListener('input', function () {
+                settings.primaryColor = this.value;
+            });
+
+            secondaryColorInput.addEventListener('input', function () {
+                settings.secondaryColor = this.value;
+            });
+
+            useGradientInput.addEventListener('change', function () {
+                settings.useGradient = this.checked;
+            });
+
+            bassSensitivityInput.addEventListener('input', function () {
+                settings.bassSensitivity = parseFloat(this.value);
+            });
+
+            midSensitivityInput.addEventListener('input', function () {
+                settings.midSensitivity = parseFloat(this.value);
+            });
+
+            trebleSensitivityInput.addEventListener('input', function () {
+                settings.trebleSensitivity = parseFloat(this.value);
+            });
+
+            visSizeInput.addEventListener('input', function () {
+                settings.visSize = parseFloat(this.value);
+            });
+
+            lineWidthInput.addEventListener('input', function () {
+                settings.lineWidth = parseInt(this.value);
+            });
+
+            glowIntensityInput.addEventListener('input', function () {
+                settings.glowIntensity = parseFloat(this.value);
+            });
+
+            bgDimInput.addEventListener('input', function () {
+                settings.bgDim = parseFloat(this.value);
+                updateBackgroundDim();
+            });
+        }
+
+        // Update background dimming
+        function updateBackgroundDim() {
+            bgImage.style.filter = `brightness(${1 - settings.bgDim})`;
+        }
+
+        // Setup audio for visualization
+        function setupAudio(url, title) {
+            initAudio();
+
+            audio.src = url;
+            audio.crossOrigin = "anonymous";
+
+            if (source) {
+                source.disconnect();
+            }
+
+            source = audioContext.createMediaElementSource(audio);
+            source.connect(analyser);
+            analyser.connect(audioContext.destination);
+
+            // Display song info
+            songTitle.textContent = title || 'Unknown Track';
+            audioInfo.classList.remove('hidden');
+
+            audio.play().then(() => {
+                audioPlaying = true;
+                visualize();
+                updateAudioProgress();
+            }).catch(error => {
+                console.error('Error playing audio:', error);
+            });
+        }
+
+        // Update audio progress display
+        function updateAudioProgress() {
+            if (!audioPlaying) return;
+
+            const minutes = Math.floor(audio.currentTime / 60);
+            const seconds = Math.floor(audio.currentTime % 60).toString().padStart(2, '0');
+            const totalMinutes = Math.floor(audio.duration / 60) || 0;
+            const totalSeconds = Math.floor(audio.duration % 60).toString().padStart(2, '0') || '00';
+
+            audioProgress.textContent = `${minutes}:${seconds} / ${totalMinutes}:${totalSeconds}`;
+
+            requestAnimationFrame(updateAudioProgress);
+        }
+
+        // Stop audio playback
+        function stopAudio() {
+            if (audio) {
+                audio.pause();
+                audio.currentTime = 0;
+            }
+            audioPlaying = false;
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+            }
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // Main visualization function
+        function visualize() {
+            if (!audioPlaying) return;
+
+            // Get current audio data
+            analyser.getByteFrequencyData(dataArray);
+
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Choose visualization type
+            switch (settings.visType) {
+                case 'circle':
+                    drawCircleVisualizer();
+                    break;
+                case 'bars':
+                    drawCircularBars();
+                    break;
+                case 'wave':
+                    drawWaveform();
+                    break;
+                case 'particles':
+                    drawParticles();
+                    break;
+                case 'spectrum':
+                    drawSpectrum();
+                    break;
+                case 'imageCircle':
+                    drawImageCircle();
+                    break;
+                default:
+                    drawCircleVisualizer();
+            }
+
+            // Loop animation
+            animationId = requestAnimationFrame(visualize);
+        }
+
+        // NCS-style circle ring visualizer
+        function drawCircleVisualizer() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = Math.min(centerX, centerY) * 0.7 * settings.visSize;
+
+            ctx.lineWidth = settings.lineWidth;
+            ctx.lineCap = 'round';
+
+            const segments = 100;
+            const angleStep = (Math.PI * 2) / segments;
+
+            // Map frequency data to segments
+            for (let i = 0; i < segments; i++) {
+                // Weight different frequency ranges
+                const bassIndex = Math.floor(i / segments * bufferLength * 0.2);
+                const midIndex = Math.floor(i / segments * bufferLength * 0.5) + Math.floor(bufferLength * 0.2);
+                const trebleIndex = Math.floor(i / segments * bufferLength * 0.3) + Math.floor(bufferLength * 0.7);
+
+                let bassValue = (dataArray[bassIndex] || 0) / 255 * settings.bassSensitivity;
+                let midValue = (dataArray[midIndex] || 0) / 255 * settings.midSensitivity;
+                let trebleValue = (dataArray[trebleIndex] || 0) / 255 * settings.trebleSensitivity;
+
+                // Weight the frequencies based on the index
+                let value;
+                if (i < segments * 0.3) {
+                    // More bass influence
+                    value = bassValue * 0.7 + midValue * 0.2 + trebleValue * 0.1;
+                } else if (i < segments * 0.7) {
+                    // More mid influence
+                    value = bassValue * 0.2 + midValue * 0.6 + trebleValue * 0.2;
+                } else {
+                    // More treble influence
+                    value = bassValue * 0.1 + midValue * 0.3 + trebleValue * 0.6;
+                }
+
+                // Make sure there's always something visible
+                value = value * 0.8 + 0.2;
+
+                const angle = i * angleStep;
+                const innerRadius = radius * 0.9;
+                const outerRadius = radius * (1 + value * 0.3);
+
+                // Create gradient for glow effect if enabled
+                if (settings.useGradient) {
+                    const gradient = ctx.createLinearGradient(
+                        centerX + innerRadius * Math.cos(angle),
+                        centerY + innerRadius * Math.sin(angle),
+                        centerX + outerRadius * Math.cos(angle),
+                        centerY + outerRadius * Math.sin(angle)
+                    );
+
+                    gradient.addColorStop(0, `${settings.primaryColor}33`); // Semi-transparent primary
+                    gradient.addColorStop(1, `${settings.primaryColor}cc`); // More opaque primary
+
+                    ctx.strokeStyle = gradient;
+                } else {
+                    ctx.strokeStyle = settings.primaryColor;
+                }
+
+                ctx.beginPath();
+                ctx.moveTo(
+                    centerX + innerRadius * Math.cos(angle),
+                    centerY + innerRadius * Math.sin(angle)
+                );
+                ctx.lineTo(
+                    centerX + outerRadius * Math.cos(angle),
+                    centerY + outerRadius * Math.sin(angle)
+                );
+                ctx.stroke();
+            }
+
+            // Draw glow
+            if (settings.glowIntensity > 0) {
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                ctx.strokeStyle = `${settings.primaryColor}${Math.floor(settings.glowIntensity * 40).toString(16).padStart(2, '0')}`;
+                ctx.lineWidth = 40 * settings.glowIntensity;
+                ctx.stroke();
+            }
+
+            // Draw main circle
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            ctx.strokeStyle = `${settings.primaryColor}80`;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+        }
+
+        // Circular bars visualizer
+        function drawCircularBars() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = Math.min(centerX, centerY) * 0.6 * settings.visSize;
+            const barCount = 180;
+            const barWidth = Math.PI * 2 / barCount;
+
+            // Calculate sub-ranges for better visualization
+            const bassEnd = Math.floor(bufferLength * 0.1);
+            const midEnd = Math.floor(bufferLength * 0.5);
+
+            for (let i = 0; i < barCount; i++) {
+                // Map the bar index to a frequency index
+                let frequencyIndex;
+                if (i < barCount * 0.2) {
+                    // Bass range (first 20% of bars)
+                    frequencyIndex = Math.floor((i / (barCount * 0.2)) * bassEnd);
+                    frequencyIndex = Math.min(frequencyIndex, bassEnd - 1);
+                } else if (i < barCount * 0.6) {
+                    // Mid range (next 40% of bars)
+                    const midRangePosition = (i - barCount * 0.2) / (barCount * 0.4);
+                    frequencyIndex = Math.floor(bassEnd + midRangePosition * (midEnd - bassEnd));
+                    frequencyIndex = Math.min(frequencyIndex, midEnd - 1);
+                } else {
+                    // Treble range (last 40% of bars)
+                    const trebleRangePosition = (i - barCount * 0.6) / (barCount * 0.4);
+                    frequencyIndex = Math.floor(midEnd + trebleRangePosition * (bufferLength - midEnd));
+                    frequencyIndex = Math.min(frequencyIndex, bufferLength - 1);
+                }
+
+                // Apply sensitivity based on range
+                let value;
+                if (frequencyIndex < bassEnd) {
+                    value = dataArray[frequencyIndex] / 255 * settings.bassSensitivity;
+                } else if (frequencyIndex < midEnd) {
+                    value = dataArray[frequencyIndex] / 255 * settings.midSensitivity;
+                } else {
+                    value = dataArray[frequencyIndex] / 255 * settings.trebleSensitivity;
+                }
+
+                const barHeight = value * radius * 0.5;
+
+                // Calculate bar color based on position or frequency
+                let barColor;
+                if (settings.useGradient) {
+                    const hue = (i / barCount) * 360;
+                    barColor = `hsl(${hue}, 100%, 50%)`;
+                } else {
+                    // Alternate between primary and secondary colors
+                    barColor = i % 2 === 0 ? settings.primaryColor : settings.secondaryColor;
+                }
+
+                const angle = i * barWidth;
+
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                ctx.rotate(angle);
+
+                // Draw bar
+                ctx.fillStyle = barColor;
+                ctx.fillRect(0, radius - barHeight, settings.lineWidth, barHeight);
+
+                // Add glow effect
+                if (settings.glowIntensity > 0) {
+                    ctx.shadowBlur = 15 * settings.glowIntensity;
+                    ctx.shadowColor = barColor;
+                }
+
+                ctx.restore();
+            }
+
+            // Draw center circle
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius * 0.2, 0, Math.PI * 2);
+            ctx.fillStyle = settings.useGradient ?
+                `${settings.secondaryColor}80` :
+                `${settings.primaryColor}80`;
+            ctx.fill();
+        }
+
+        // Waveform visualizer
+        function drawWaveform() {
+            // Use time domain data for waveform
+            const timeDataArray = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteTimeDomainData(timeDataArray);
+
+            const centerY = canvas.height / 2;
+            const width = canvas.width;
+            const sliceWidth = width / timeDataArray.length;
+
+            ctx.lineWidth = settings.lineWidth;
+
+            // Create gradient if enabled
+            if (settings.useGradient) {
+                const gradient = ctx.createLinearGradient(0, 0, width, 0);
+                gradient.addColorStop(0, settings.primaryColor);
+                gradient.addColorStop(0.5, settings.secondaryColor);
+                gradient.addColorStop(1, settings.primaryColor);
+                ctx.strokeStyle = gradient;
+            } else {
+                ctx.strokeStyle = settings.primaryColor;
+            }
+
+            // Add glow effect
+            if (settings.glowIntensity > 0) {
+                ctx.shadowBlur = 10 * settings.glowIntensity;
+                ctx.shadowColor = settings.primaryColor;
+            }
+
+            // Draw waveform
+            ctx.beginPath();
+
+            let x = 0;
+            for (let i = 0; i < timeDataArray.length; i++) {
+                const v = timeDataArray[i] / 128.0;
+                const y = v * centerY * settings.midSensitivity;
+
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+
+                x += sliceWidth;
+            }
+
+            ctx.stroke();
+
+            // Draw center line
+            ctx.beginPath();
+            ctx.moveTo(0, centerY);
+            ctx.lineTo(width, centerY);
+            ctx.strokeStyle = `${settings.primaryColor}40`;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Remove shadow for performance
+            ctx.shadowBlur = 0;
+        }
+
+        // Particle system visualizer
+        let particles = [];
+
+        function drawParticles() {
+            // Create/update particles
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = Math.min(centerX, centerY) * 0.7 * settings.visSize;
+
+            // Average the audio data for overall intensity
+            let averageIntensity = 0;
+            let bassIntensity = 0;
+            let trebleIntensity = 0;
+
+            // Bass range (first 10%)
+            for (let i = 0; i < bufferLength * 0.1; i++) {
+                bassIntensity += dataArray[i];
+            }
+            bassIntensity = (bassIntensity / (bufferLength * 0.1)) / 255 * settings.bassSensitivity;
+
+            // Treble range (last 30%)
+            for (let i = Math.floor(bufferLength * 0.7); i < bufferLength; i++) {
+                trebleIntensity += dataArray[i];
+            }
+            trebleIntensity = (trebleIntensity / (bufferLength * 0.3)) / 255 * settings.trebleSensitivity;
+
+            // Overall intensity
+            for (let i = 0; i < bufferLength; i++) {
+                averageIntensity += dataArray[i];
+            }
+            averageIntensity = (averageIntensity / bufferLength) / 255;
+
+            // Create new particles based on bass intensity
+            if (Math.random() < bassIntensity * 0.3) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 1 + Math.random() * 3 * bassIntensity;
+                const size = 3 + Math.random() * 5 * settings.lineWidth;
+                const life = 100 + Math.random() * 50;
+
+                particles.push({
+                    x: centerX,
+                    y: centerY,
+                    angle: angle,
+                    speed: speed,
+                    size: size,
+                    life: life,
+                    maxLife: life,
+                    color: settings.useGradient ?
+                        `hsl(${Math.floor(Math.random() * 360)}, 100%, 50%)` :
+                        Math.random() > 0.5 ? settings.primaryColor : settings.secondaryColor
+                });
+            }
+
+            // Update and draw particles
+            ctx.save();
+
+            // Add glow effect to particles
+            if (settings.glowIntensity > 0) {
+                ctx.shadowBlur = 10 * settings.glowIntensity;
+                ctx.shadowColor = settings.primaryColor;
+            }
+
+            for (let i = 0; i < particles.length; i++) {
+                const p = particles[i];
+
+                // Update position
+                p.x += Math.cos(p.angle) * p.speed;
+                p.y += Math.sin(p.angle) * p.speed;
+
+                // Update life
+                p.life--;
+
+                // Draw particle
+                const alpha = p.life / p.maxLife;
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Remove dead particles
+            particles = particles.filter(p => p.life > 0);
+
+            ctx.globalAlpha = 1;
+            ctx.restore();
+
+            // Draw center circle with pulse effect
+            const pulseSize = radius * 0.2 * (1 + bassIntensity * 0.3);
+
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, pulseSize, 0, Math.PI * 2);
+            ctx.fillStyle = settings.useGradient ?
+                `${settings.secondaryColor}80` :
+                `${settings.primaryColor}80`;
+            ctx.fill();
+
+            // Add circle ring effect that pulses with treble
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius * (0.8 + trebleIntensity * 0.2), 0, Math.PI * 2);
+            ctx.strokeStyle = settings.useGradient ?
+                `${settings.primaryColor}40` :
+                `${settings.secondaryColor}40`;
+            ctx.lineWidth = 2 + trebleIntensity * 5;
+            ctx.stroke();
+        }
+
+        // Spectrum analyzer visualizer
+        function drawSpectrum() {
+            const width = canvas.width;
+            const height = canvas.height;
+            const barCount = 120 * settings.visSize;
+            const barWidth = width / barCount;
+            const barSpacing = barWidth * 0.2;
+
+            // Calculate sub-ranges for better visualization
+            const bassEnd = Math.floor(bufferLength * 0.1);
+            const midEnd = Math.floor(bufferLength * 0.5);
+
+            // Create gradient if enabled
+            let gradient;
+            if (settings.useGradient) {
+                gradient = ctx.createLinearGradient(0, height, 0, 0);
+                gradient.addColorStop(0, settings.primaryColor);
+                gradient.addColorStop(0.5, settings.secondaryColor);
+                gradient.addColorStop(1, settings.primaryColor);
+            }
+
+            // Add glow effect
+            if (settings.glowIntensity > 0) {
+                ctx.shadowBlur = 10 * settings.glowIntensity;
+                ctx.shadowColor = settings.primaryColor;
+            }
+
+            for (let i = 0; i < barCount; i++) {
+                // Map the bar index to a frequency index using logarithmic scale for better distribution
+                // This gives more detail to lower frequencies which is better for music visualization
+                const logIndex = Math.floor(Math.pow(i / barCount, 2) * bufferLength);
+
+                // Apply sensitivity based on range
+                let value;
+                if (logIndex < bassEnd) {
+                    value = dataArray[logIndex] / 255 * settings.bassSensitivity;
+                } else if (logIndex < midEnd) {
+                    value = dataArray[logIndex] / 255 * settings.midSensitivity;
+                } else {
+                    value = dataArray[logIndex] / 255 * settings.trebleSensitivity;
+                }
+
+                const barHeight = value * height * 0.8;
+
+                // Calculate bar color
+                let barColor;
+                if (settings.useGradient) {
+                    barColor = gradient;
+                } else {
+                    // Color based on frequency range
+                    if (logIndex < bassEnd) {
+                        barColor = settings.primaryColor;
+                    } else if (logIndex < midEnd) {
+                        barColor = settings.secondaryColor;
+                    } else {
+                        // Mix primary and secondary for treble
+                        barColor = i % 2 === 0 ? settings.primaryColor : settings.secondaryColor;
+                    }
+                }
+
+                const x = i * (barWidth + barSpacing);
+                const y = height - barHeight;
+
+                // Draw bar
+                ctx.fillStyle = barColor;
+                ctx.fillRect(x, y, barWidth, barHeight);
+
+                // Add peak indicator
+                if (barHeight > 10) {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(x, y - 2, barWidth, 2);
+                }
+            }
+
+            // Remove shadow for performance
+            ctx.shadowBlur = 0;
+        }
+
+        // Handle window resize
+        function handleResize() {
+            const visualizerContainer = document.querySelector('.visualizer-container');
+            const containerWidth = visualizerContainer.offsetWidth;
+            const containerHeight = visualizerContainer.offsetHeight;
+
+            // Maintain aspect ratio but fit within container
+            const size = Math.min(containerWidth, containerHeight) * 0.9;
+
+            canvas.width = size;
+            canvas.height = size;
+
+            // Redraw if not animating
+            if (!audioPlaying && !animationId) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+
+        function drawImageCircle() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const maxRadius = Math.min(centerX, centerY) * 0.7 * settings.visSize;
+
+            // Calculate average bass, mid, and treble values
+            let bassValue = 0;
+            const bassRange = Math.floor(bufferLength * 0.1);
+            for (let i = 0; i < bassRange; i++) {
+                bassValue += dataArray[i];
+            }
+            bassValue = (bassValue / bassRange) / 255 * settings.bassSensitivity;
+
+            let midValue = 0;
+            const midStart = bassRange;
+            const midEnd = Math.floor(bufferLength * 0.5);
+            for (let i = midStart; i < midEnd; i++) {
+                midValue += dataArray[i];
+            }
+            midValue = (midValue / (midEnd - midStart)) / 255 * settings.midSensitivity;
+
+            let trebleValue = 0;
+            const trebleStart = midEnd;
+            for (let i = trebleStart; i < bufferLength; i++) {
+                trebleValue += dataArray[i];
+            }
+            trebleValue = (trebleValue / (bufferLength - trebleStart)) / 255 * settings.trebleSensitivity;
+
+            // Calculate pulse size based on bass (makes the circle "bop")
+            const pulseIntensity = bassValue * 0.3; // How much it "bops"
+            const radius = maxRadius * (0.7 + pulseIntensity);
+
+            // Draw outer circle with glow
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            ctx.strokeStyle = settings.primaryColor;
+            ctx.lineWidth = settings.lineWidth * (1 + midValue * 0.5);
+            ctx.stroke();
+
+            // Add glow effect based on treble
+            if (settings.glowIntensity > 0) {
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                ctx.strokeStyle = `${settings.primaryColor}${Math.floor((settings.glowIntensity + trebleValue) * 30).toString(16).padStart(2, '0')}`;
+                ctx.lineWidth = 30 * settings.glowIntensity * (1 + trebleValue * 0.5);
+                ctx.stroke();
+            }
+
+            // Draw image or placeholder
+            const imageRadius = radius * 0.9;
+            if (circleImage) {
+                // Create circular clipping region
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, imageRadius, 0, Math.PI * 2);
+                ctx.clip();
+
+                // Calculate image dimensions to maintain aspect ratio
+                const aspectRatio = circleImage.width / circleImage.height;
+                let drawWidth, drawHeight;
+
+                if (aspectRatio >= 1) {
+                    // Wider than tall
+                    drawHeight = imageRadius * 2;
+                    drawWidth = drawHeight * aspectRatio;
+                } else {
+                    // Taller than wide
+                    drawWidth = imageRadius * 2;
+                    drawHeight = drawWidth / aspectRatio;
+                }
+
+                // Center the image
+                const drawX = centerX - drawWidth / 2;
+                const drawY = centerY - drawHeight / 2;
+
+                // Draw the image
+                ctx.drawImage(circleImage, drawX, drawY, drawWidth, drawHeight);
+                ctx.restore();
+            } else {
+                // Draw a placeholder circle
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, imageRadius, 0, Math.PI * 2);
+
+                if (settings.useGradient) {
+                    const gradient = ctx.createRadialGradient(
+                        centerX, centerY, 0,
+                        centerX, centerY, imageRadius
+                    );
+                    gradient.addColorStop(0, settings.secondaryColor);
+                    gradient.addColorStop(1, settings.primaryColor);
+                    ctx.fillStyle = gradient;
+                } else {
+                    ctx.fillStyle = `${settings.primaryColor}80`;
+                }
+
+                ctx.fill();
+
+                // Add placeholder text
+                ctx.font = 'bold 16px Arial';
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('Upload Image', centerX, centerY);
+            }
+
+            // Add visual feedback for beat detection
+            if (bassValue > 0.7) {
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius * 1.05, 0, Math.PI * 2);
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+        }
+
+        // Initialize
+        function init() {
+            setupEventListeners();
+            handleResize();
+            updateBackgroundDim();
+
+            // Initial canvas state
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = Math.min(centerX, centerY) * 0.7;
+
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            ctx.strokeStyle = settings.primaryColor + '80';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            // Draw initial glow
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            ctx.strokeStyle = settings.primaryColor + '26';
+            ctx.lineWidth = 20;
+            ctx.stroke();
+
+            // Add logo text in center
+            ctx.font = 'bold 48px Arial';
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('AJ', centerX, centerY);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', handleResize);
+
+        // Initialize on load
+        init();
+    </script>
+</body>
+
+</html>
